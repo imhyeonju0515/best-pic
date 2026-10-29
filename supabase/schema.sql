@@ -159,10 +159,66 @@ create policy "photos_insert_own" on public.photos
     and path like auth.uid()::text || '/%'
   );
 
+-- 사진 삭제는 관리자만 가능 (예전 정책이 있으면 지워요)
 drop policy if exists "photos_delete_own" on public.photos;
-create policy "photos_delete_own" on public.photos
+drop policy if exists "photos_delete_admin" on public.photos;
+create policy "photos_delete_admin" on public.photos
+  for delete to authenticated
+  using (public.is_admin());
+
+-- ---------- 6-2) 댓글 (comments) ----------
+create table if not exists public.comments (
+  id         uuid primary key default gen_random_uuid(),
+  photo_id   uuid not null references public.photos (id) on delete cascade,
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  body       text not null check (char_length(body) between 1 and 300),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists comments_photo_idx on public.comments (photo_id, created_at);
+
+alter table public.comments enable row level security;
+
+drop policy if exists "comments_select_approved" on public.comments;
+create policy "comments_select_approved" on public.comments
+  for select to authenticated
+  using (public.is_approved());
+
+drop policy if exists "comments_insert_own" on public.comments;
+create policy "comments_insert_own" on public.comments
+  for insert to authenticated
+  with check (public.is_approved() and user_id = auth.uid());
+
+-- 댓글은 쓴 사람 본인 또는 관리자가 지울 수 있어요
+drop policy if exists "comments_delete_own_or_admin" on public.comments;
+create policy "comments_delete_own_or_admin" on public.comments
   for delete to authenticated
   using ((user_id = auth.uid() and public.is_approved()) or public.is_admin());
+
+-- ---------- 6-3) 하트 (likes) : 한 사람이 한 사진에 하트 한 번 ----------
+create table if not exists public.likes (
+  photo_id   uuid not null references public.photos (id) on delete cascade,
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (photo_id, user_id)
+);
+
+alter table public.likes enable row level security;
+
+drop policy if exists "likes_select_approved" on public.likes;
+create policy "likes_select_approved" on public.likes
+  for select to authenticated
+  using (public.is_approved());
+
+drop policy if exists "likes_insert_own" on public.likes;
+create policy "likes_insert_own" on public.likes
+  for insert to authenticated
+  with check (public.is_approved() and user_id = auth.uid());
+
+drop policy if exists "likes_delete_own" on public.likes;
+create policy "likes_delete_own" on public.likes
+  for delete to authenticated
+  using (user_id = auth.uid());
 
 -- ---------- 7) 사진 보관함 (Storage 버킷 'photos', 비공개) ----------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -192,7 +248,14 @@ create policy "photos_bucket_delete" on storage.objects
   using (
     bucket_id = 'photos'
     and public.is_approved()
-    and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin())
+    and (
+      public.is_admin()
+      -- 올리다 실패한 내 파일(사진 목록에 아직 없는 것)만 본인이 정리할 수 있어요
+      or (
+        (storage.foldername(name))[1] = auth.uid()::text
+        and not exists (select 1 from public.photos p where p.path = name)
+      )
+    )
   );
 
 -- ============================================================

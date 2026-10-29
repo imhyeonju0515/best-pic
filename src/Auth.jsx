@@ -51,9 +51,7 @@ export default function Auth() {
     <section className="panel auth">
       <p className="tag">{isSignup ? '[NEW MEMBER]' : '[MEMBER LOGIN]'}</p>
       <h1 className="big-title">
-        친구들만 보는
-        <br />
-        <em>베스트 사진</em> 모음
+        <em>주주친구들</em>
       </h1>
       <p className="lead">
         닉네임만 정하면 끝! 가입 요청을 보내면 관리자가 승인해 줘요. 이메일은 필요 없어요.

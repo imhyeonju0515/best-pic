@@ -604,7 +604,7 @@ input::placeholder {
   border-radius: 48px / 36px;
   overflow: hidden;
   box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.9), inset 0 0 0 3px #111, 0 0 20px rgba(80, 120, 255, 0.25);
-  height: clamp(150px, calc(100dvh - 200px), 640px);
+  height: clamp(150px, calc(100dvh - 340px), 640px);
 }
 .crt-glass img {
   max-width: 100%;
@@ -834,7 +834,7 @@ input::placeholder {
   }
   .crt-glass {
     border-radius: 28px / 22px;
-    height: clamp(150px, calc(100dvh - 190px), 520px);
+    height: clamp(150px, calc(100dvh - 330px), 520px);
   }
   .crt-nav {
     width: 36px;
@@ -858,4 +858,228 @@ input::placeholder {
   .vhs:hover {
     transform: none;
   }
+}
+
+/* ---------- 하트 · 폴더 · 댓글 · 순위 ---------- */
+.hint {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: #c9c6bd;
+  margin: 0;
+}
+.folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.folder .tag {
+  margin: 0;
+}
+.folder.on {
+  border-color: var(--yellow);
+  background: rgba(242, 194, 0, 0.1);
+}
+.folder:hover {
+  border-color: var(--ink);
+}
+
+.vhs {
+  display: block;
+}
+.vhs-open {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+.vhs-open:focus-visible {
+  outline: 2px solid var(--yellow);
+}
+.vhs:hover,
+.vhs:focus-within {
+  transform: translateY(-5px) rotate(-0.8deg);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.7), 0 0 26px rgba(242, 194, 0, 0.14), inset 0 0 0 3px #08090a;
+}
+.vhs:hover .vhs-play,
+.vhs:focus-within .vhs-play {
+  opacity: 1;
+}
+.vhs.top {
+  border-color: var(--yellow);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 0 22px rgba(242, 194, 0, 0.25), inset 0 0 0 3px #08090a;
+}
+.crown {
+  position: absolute;
+  left: 8px;
+  top: 34px;
+  z-index: 3;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(5, 5, 5, 0.75);
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+}
+.crown.r0 {
+  color: var(--yellow);
+  border-color: var(--yellow);
+}
+.vhs-logo {
+  top: auto;
+  bottom: 10px;
+  pointer-events: none;
+}
+.vhs-title {
+  padding-right: 0;
+}
+.vhs-meta {
+  padding-right: 52px;
+}
+
+.heart {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(5, 5, 5, 0.7);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 4px 10px;
+  min-height: 34px;
+  font-family: var(--mono);
+  font-size: 13px;
+  transition: transform 0.12s, color 0.15s, border-color 0.15s;
+}
+.vhs .heart {
+  position: absolute;
+  right: 18px;
+  top: 38px;
+  z-index: 3;
+}
+.heart:hover {
+  border-color: var(--red);
+}
+.heart:active {
+  transform: scale(0.9);
+}
+.heart.on {
+  color: var(--red);
+  border-color: var(--red);
+}
+.heart-ico {
+  font-size: 17px;
+  line-height: 1;
+}
+.heart.big {
+  background: transparent;
+  min-height: 36px;
+}
+.crt .heart.big {
+  color: #17181b;
+  border-color: #17181b;
+}
+.crt .heart.big.on {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.crt {
+  overflow-y: auto;
+}
+.crt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.crt .btn.sm {
+  color: #17181b;
+  border-color: #17181b;
+}
+.crt .btn.danger.sm {
+  color: #7a1510;
+  border-color: #7a1510;
+}
+.comments {
+  border-top: 1px dashed #8a877d;
+  margin: 8px 8px 4px;
+  padding-top: 10px;
+}
+.comments .tag {
+  color: #55565a;
+}
+.comments ul {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+.comments li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+.comments li.dim {
+  color: #6b6a64;
+}
+.c-body {
+  flex: 1 1 140px;
+  word-break: break-word;
+}
+.c-time {
+  margin: 0;
+  color: #6b6a64 !important;
+}
+.comments .x {
+  color: #55565a;
+  font-size: 18px;
+  padding: 0 6px;
+}
+.c-form {
+  display: flex;
+  gap: 8px;
+}
+.c-form input {
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: #17181b !important;
+  border-bottom-color: #55565a !important;
+  font-size: 14px !important;
+  padding: 8px 6px !important;
+}
+.c-form input::placeholder {
+  color: #77766f;
+}
+@media (max-width: 760px) {
+  .vhs .heart {
+    right: 12px;
+    top: 34px;
+    padding: 3px 8px;
+  }
+  .folder {
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+}
+
+.c-form .btn {
+  white-space: nowrap;
 }
