@@ -258,6 +258,38 @@ create policy "photos_bucket_delete" on storage.objects
     )
   );
 
+-- ---------- 8) 대폴더 (albums) + 날짜 폴더 배치 (album_days) ----------
+-- 대폴더 제목은 관리자가 정하고, 날짜 폴더를 어느 대폴더에 넣을지도 관리자가 옮깁니다.
+create table if not exists public.albums (
+  id         uuid primary key default gen_random_uuid(),
+  title      text not null check (char_length(title) between 1 and 30),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.album_days (
+  day      text primary key check (day ~ '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$'),
+  album_id uuid references public.albums (id) on delete set null
+);
+
+alter table public.albums enable row level security;
+alter table public.album_days enable row level security;
+
+drop policy if exists "albums_select_approved" on public.albums;
+create policy "albums_select_approved" on public.albums
+  for select to authenticated using (public.is_approved());
+
+drop policy if exists "albums_admin_write" on public.albums;
+create policy "albums_admin_write" on public.albums
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "album_days_select_approved" on public.album_days;
+create policy "album_days_select_approved" on public.album_days
+  for select to authenticated using (public.is_approved());
+
+drop policy if exists "album_days_admin_write" on public.album_days;
+create policy "album_days_admin_write" on public.album_days
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
 -- ============================================================
 -- 끝! 첫 관리자는 가입을 한 뒤 아래 한 줄을 (닉네임만 바꿔서) 실행하세요.
 --

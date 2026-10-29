@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase.js'
 
+const PAGE = 24
 const STRIPES = ['var(--red)', 'var(--yellow)', 'var(--blue)']
 const RANK = ['1ST', '2ND', '3RD']
 
@@ -241,13 +242,128 @@ function Lightbox({ items, index, setIndex, me, isAdmin, likes, commentsN, names
   )
 }
 
+
+
+// 왼쪽 폴더 트리 (대폴더 → 날짜 폴더). 관리자는 [EDIT] 로 제목 설정/이동
+function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRename, onDeleteAlbum, onMoveDay, total }) {
+  const [edit, setEdit] = useState(false)
+  const groups = [
+    ...albums.map((a) => ({ id: a.id, title: a.title, days: days.filter((d) => d.album === a.id) })),
+    { id: null, title: '미분류', days: days.filter((d) => !d.album || !albums.some((a) => a.id === d.album)) },
+  ].filter((g) => g.id || g.days.length || albums.length === 0)
+
+  const sum = (g) => g.days.reduce((s, d) => s + d.count, 0)
+
+  return (
+    <aside className="tree" aria-label="폴더">
+      <div className="tree-head">
+        <span className="tag">[FOLDERS]</span>
+        {isAdmin && (
+          <button className={'tree-edit' + (edit ? ' on' : '')} onClick={() => setEdit((v) => !v)}>
+            [EDIT]
+          </button>
+        )}
+      </div>
+      <button className={'node root' + (scope.t === 'all' ? ' on' : '')} onClick={() => setScope({ t: 'all' })}>
+        <span>▣ 전체</span>
+        <span className="dim">{total}</span>
+      </button>
+
+      {groups.map((g) => (
+        <div className="tree-album" key={g.id || 'none'}>
+          <div className="node-row">
+            <button
+              className={'node album' + (scope.t === 'album' && scope.id === g.id ? ' on' : '')}
+              onClick={() => setScope({ t: 'album', id: g.id })}
+            >
+              <span>▸ {g.title}</span>
+              <span className="dim">{sum(g)}</span>
+            </button>
+            {edit && g.id && (
+              <span className="node-tools">
+                <button onClick={() => onRename(g)} aria-label="제목 바꾸기">✎</button>
+                <button onClick={() => onDeleteAlbum(g)} aria-label="대폴더 삭제">×</button>
+              </span>
+            )}
+          </div>
+          <div className="tree-days">
+            {g.days.map((d) => (
+              <div className="node-row" key={d.day}>
+                <button
+                  className={'node day' + (scope.t === 'day' && scope.id === d.day ? ' on' : '')}
+                  onClick={() => setScope({ t: 'day', id: d.day })}
+                >
+                  <span>└ {d.day.slice(2)}</span>
+                  <span className="dim">
+                    {d.count} · ♥{d.hearts}
+                  </span>
+                </button>
+                {edit && (
+                  <select
+                    className="move"
+                    value={g.id || ''}
+                    onChange={(e) => onMoveDay(d.day, e.target.value || null)}
+                    aria-label={`${d.day} 이동`}
+                  >
+                    <option value="">미분류</option>
+                    {albums.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            ))}
+            {g.days.length === 0 && <p className="tag dim empty-dir">(비어 있어요)</p>}
+          </div>
+        </div>
+      ))}
+
+      {edit && (
+        <button className="btn sm add-album" onClick={onAddAlbum}>
+          ＋ 대폴더 추가
+        </button>
+      )}
+    </aside>
+  )
+}
+
+// 큰 화면: 하트를 가장 많이 받은 사진
+function Feature({ p, likes, me, onHeart, onOpen, best }) {
+  if (!p) return null
+  const n = likes[p.id]?.size || 0
+  return (
+    <div className="feature">
+      <div className="crt-bar feature-bar">
+        <span>
+          <b className="rec">●</b> {best ? 'BEST PIC ▶ 하트 1위' : 'LATEST ▶ 최신 사진'}
+        </span>
+        <span>
+          {p.nickname || '???'} · {fmtTime(p.created_at)}
+        </span>
+      </div>
+      <button className="feature-glass" onClick={onOpen} aria-label="크게 보기">
+        {p.url ? <img src={p.url} alt={p.caption || ''} /> : <span className="skeleton" />}
+      </button>
+      <div className="feature-info">
+        <p className="crt-title">{p.caption || '무제'}</p>
+        <Heart big on={Boolean(likes[p.id]?.has(me))} count={n} onClick={() => onHeart(p.id)} />
+      </div>
+    </div>
+  )
+}
+
 export default function Gallery({ session, isAdmin, goUpload }) {
   const me = session.user.id
-  const [metas, setMetas] = useState([]) // 사진 정보 전체 (주소 없이)
-  const [likes, setLikes] = useState({}) // photo_id -> Set(user_id)
+  const [metas, setMetas] = useState([])
+  const [likes, setLikes] = useState({})
   const [commentsN, setCommentsN] = useState({})
+  const [albums, setAlbums] = useState([])
+  const [assign, setAssign] = useState({}) // day -> album_id
   const [urls, setUrls] = useState({})
-  const [active, setActive] = useState(null) // 열린 날짜 폴더
+  const [scope, setScope] = useState({ t: 'all' })
+  const [limit, setLimit] = useState(PAGE)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [open, setOpen] = useState(-1)
@@ -256,10 +372,12 @@ export default function Gallery({ session, isAdmin, goUpload }) {
   const loadAll = useCallback(async () => {
     setLoading(true)
     setErr('')
-    const [ph, lk, cm] = await Promise.all([
+    const [ph, lk, cm, al, ad] = await Promise.all([
       supabase.from('photos').select('id,user_id,path,caption,created_at').order('created_at', { ascending: false }).range(0, 999),
       supabase.from('likes').select('photo_id,user_id').range(0, 9999),
       supabase.from('comments').select('photo_id').range(0, 9999),
+      supabase.from('albums').select('id,title').order('created_at', { ascending: true }),
+      supabase.from('album_days').select('day,album_id'),
     ])
     if (ph.error) {
       setErr('사진을 불러오지 못했어요: ' + ph.error.message)
@@ -275,8 +393,12 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     lk.data?.forEach((l) => (lm[l.photo_id] ||= new Set()).add(l.user_id))
     const cn = {}
     cm.data?.forEach((c) => (cn[c.photo_id] = (cn[c.photo_id] || 0) + 1))
+    const am = {}
+    ad.data?.forEach((r) => (am[r.day] = r.album_id))
     setLikes(lm)
     setCommentsN(cn)
+    setAlbums(al.data || [])
+    setAssign(am)
     setMetas(ph.data.map((p) => ({ ...p, nickname: names.current[p.user_id] })))
     setLoading(false)
   }, [])
@@ -285,34 +407,43 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     loadAll()
   }, [loadAll])
 
-  // 날짜 폴더 (최신순). 폴더 안 사진은 하트 많은 순 → 같으면 먼저 올린 순
-  const folders = useMemo(() => {
+  // 날짜 폴더 목록 (최신순)
+  const days = useMemo(() => {
     const map = new Map()
     metas.forEach((p) => {
       const k = dayKey(p.created_at)
-      if (!map.has(k)) map.set(k, [])
-      map.get(k).push(p)
+      const d = map.get(k) || { day: k, count: 0, hearts: 0, album: assign[k] || null }
+      d.count++
+      d.hearts += likes[p.id]?.size || 0
+      map.set(k, d)
     })
-    return [...map.entries()].map(([date, list]) => {
-      const sorted = [...list].sort(
-        (a, b) =>
-          (likes[b.id]?.size || 0) - (likes[a.id]?.size || 0) || new Date(a.created_at) - new Date(b.created_at)
-      )
-      const hearts = list.reduce((s, p) => s + (likes[p.id]?.size || 0), 0)
-      return { date, list: sorted, hearts }
+    return [...map.values()].sort((a, b) => b.day.localeCompare(a.day))
+  }, [metas, likes, assign])
+
+  // 지금 보고 있는 폴더의 사진들: 하트 많은 순 → 같으면 최신순
+  const scoped = useMemo(() => {
+    const albumIds = new Set(albums.map((a) => a.id))
+    const inScope = metas.filter((p) => {
+      const k = dayKey(p.created_at)
+      if (scope.t === 'all') return true
+      if (scope.t === 'day') return k === scope.id
+      const a = assign[k] && albumIds.has(assign[k]) ? assign[k] : null
+      return a === scope.id
     })
-  }, [metas, likes])
+    return [...inScope].sort(
+      (a, b) => (likes[b.id]?.size || 0) - (likes[a.id]?.size || 0) || new Date(b.created_at) - new Date(a.created_at)
+    )
+  }, [metas, likes, scope, assign, albums])
+
+  const shown = scoped.slice(0, limit)
 
   useEffect(() => {
-    if (!active && folders.length) setActive(folders[0].date)
-  }, [folders, active])
+    setLimit(PAGE)
+  }, [scope])
 
-  const folder = folders.find((f) => f.date === active)
-
-  // 열린 폴더의 사진만 비공개 버킷에서 1시간짜리 임시 주소(signed URL)를 받아 와요
+  // 보이는 사진만 비공개 버킷에서 1시간짜리 임시 주소(signed URL)를 받아 와요
   useEffect(() => {
-    if (!folder) return
-    const need = folder.list.filter((p) => !urls[p.path]).map((p) => p.path)
+    const need = shown.filter((p) => !urls[p.path]).map((p) => p.path)
     if (!need.length) return
     let dead = false
     supabase.storage
@@ -329,9 +460,13 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     return () => {
       dead = true
     }
-  }, [folder, urls])
+  }, [shown, urls])
 
-  const items = useMemo(() => (folder ? folder.list.map((p) => ({ ...p, url: urls[p.path] })) : []), [folder, urls])
+  const items = useMemo(() => shown.map((p) => ({ ...p, url: urls[p.path] })), [shown, urls])
+  const topLikes = items[0] ? likes[items[0].id]?.size || 0 : 0
+  const featured = topLikes > 0 ? items[0] : [...items].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
+  const featuredIdx = featured ? items.indexOf(featured) : -1
+  const rest = items.map((p, i) => ({ p, i })).filter(({ i }) => i !== featuredIdx)
 
   async function heart(photoId) {
     const had = likes[photoId]?.has(me)
@@ -349,6 +484,36 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     }
   }
 
+  // ---- 관리자: 대폴더 만들기 / 제목 바꾸기 / 삭제 / 날짜 폴더 이동 ----
+  async function addAlbum() {
+    const title = prompt('새 대폴더 제목을 적어 주세요 (30자 이내)')?.trim()
+    if (!title) return
+    const { error } = await supabase.from('albums').insert({ title: title.slice(0, 30) })
+    if (error) setErr('대폴더를 못 만들었어요: ' + error.message)
+    else loadAll()
+  }
+  async function renameAlbum(g) {
+    const title = prompt('대폴더 제목', g.title)?.trim()
+    if (!title || title === g.title) return
+    const { error } = await supabase.from('albums').update({ title: title.slice(0, 30) }).eq('id', g.id)
+    if (error) setErr('제목을 못 바꿨어요: ' + error.message)
+    else loadAll()
+  }
+  async function deleteAlbum(g) {
+    if (!confirm(`대폴더 '${g.title}' 를 지울까요? 안의 날짜 폴더는 "미분류"로 가고, 사진은 지워지지 않아요.`)) return
+    const { error } = await supabase.from('albums').delete().eq('id', g.id)
+    if (error) setErr('삭제하지 못했어요: ' + error.message)
+    else {
+      setScope({ t: 'all' })
+      loadAll()
+    }
+  }
+  async function moveDay(day, albumId) {
+    const { error } = await supabase.from('album_days').upsert({ day, album_id: albumId })
+    if (error) setErr('이동하지 못했어요: ' + error.message)
+    else setAssign((a) => ({ ...a, [day]: albumId }))
+  }
+
   const setCount = useCallback((id, n) => setCommentsN((c) => (c[id] === n ? c : { ...c, [id]: n })), [])
   const close = useCallback(() => setOpen(-1), [])
 
@@ -363,11 +528,20 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     setOpen(-1)
   }
 
+  const scopeName =
+    scope.t === 'all'
+      ? '전체'
+      : scope.t === 'day'
+        ? scope.id
+        : albums.find((a) => a.id === scope.id)?.title || '미분류'
+
   return (
     <section className="gallery">
       <div className="section-head">
         <div>
-          <p className="tag">[ARCHIVE] · {metas.length} TAPES</p>
+          <p className="tag">
+            [ARCHIVE] · {scopeName} · {scoped.length} TAPES
+          </p>
           <p className="hint">♥ 맘에 드는 사진에 하트를 눌러 주세요</p>
         </div>
         <button className="btn primary" onClick={goUpload}>
@@ -377,52 +551,75 @@ export default function Gallery({ session, isAdmin, goUpload }) {
 
       {err && <p className="error">{err}</p>}
 
-      {!loading && !err && metas.length === 0 && (
-        <div className="empty">
-          <p className="tag">[NO SIGNAL]</p>
-          <p>아직 올라온 사진이 없어요. 첫 번째 테이프를 넣어 볼까요?</p>
-          <button className="btn" onClick={goUpload}>
-            사진 올리기
-          </button>
-        </div>
-      )}
+      <div className="gal-layout">
+        <FolderTree
+          albums={albums}
+          days={days}
+          scope={scope}
+          setScope={setScope}
+          isAdmin={isAdmin}
+          total={metas.length}
+          onAddAlbum={addAlbum}
+          onRename={renameAlbum}
+          onDeleteAlbum={deleteAlbum}
+          onMoveDay={moveDay}
+        />
 
-      {folders.length > 0 && (
-        <nav className="folders" aria-label="날짜 폴더">
-          {folders.map((f) => (
-            <button key={f.date} className={'folder' + (f.date === active ? ' on' : '')} onClick={() => setActive(f.date)}>
-              <span className="tag">[DIR]</span>
-              <b>{f.date}</b>
-              <span className="tag dim">
-                {f.list.length}장 · ♥{f.hearts}
-              </span>
-            </button>
-          ))}
-        </nav>
-      )}
-
-      <div className="vhs-grid">
-        {items.map((p, i) => {
-          const n = likes[p.id]?.size || 0
-          return (
-            <VhsCard
-              key={p.id}
-              p={p}
-              rank={n > 0 && i < 3 ? i : null}
-              likes={n}
-              comments={commentsN[p.id]}
-              mine={Boolean(likes[p.id]?.has(me))}
-              onHeart={() => heart(p.id)}
-              onOpen={() => setOpen(i)}
-            />
-          )
-        })}
-        {loading &&
-          Array.from({ length: 6 }, (_, i) => (
-            <div key={'s' + i} className="vhs ghost-card">
-              <span className="skeleton" />
+        <div className="gal-main">
+          {!loading && !err && scoped.length === 0 && (
+            <div className="empty">
+              <p className="tag">[NO SIGNAL]</p>
+              <p>{metas.length === 0 ? '아직 올라온 사진이 없어요. 첫 번째 테이프를 넣어 볼까요?' : '이 폴더는 비어 있어요.'}</p>
+              {metas.length === 0 && (
+                <button className="btn" onClick={goUpload}>
+                  사진 올리기
+                </button>
+              )}
             </div>
-          ))}
+          )}
+
+          <Feature
+            p={featured}
+            best={topLikes > 0}
+            likes={likes}
+            me={me}
+            onHeart={heart}
+            onOpen={() => setOpen(featuredIdx)}
+          />
+
+          <div className="vhs-grid">
+            {rest.map(({ p, i }) => {
+              const n = likes[p.id]?.size || 0
+              const rank = topLikes > 0 && n > 0 && i < 3 ? i : null
+              return (
+                <VhsCard
+                  key={p.id}
+                  p={p}
+                  rank={rank}
+                  likes={n}
+                  comments={commentsN[p.id]}
+                  mine={Boolean(likes[p.id]?.has(me))}
+                  onHeart={() => heart(p.id)}
+                  onOpen={() => setOpen(i)}
+                />
+              )
+            })}
+            {loading &&
+              Array.from({ length: 6 }, (_, i) => (
+                <div key={'s' + i} className="vhs ghost-card">
+                  <span className="skeleton" />
+                </div>
+              ))}
+          </div>
+
+          {scoped.length > limit && (
+            <div className="center-text">
+              <button className="btn" onClick={() => setLimit((l) => l + PAGE)}>
+                ▼ 더 보기 ({scoped.length - limit})
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {open >= 0 && (
