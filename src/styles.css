@@ -1270,3 +1270,13 @@ input::placeholder {
 .logo-text {
   white-space: nowrap;
 }
+
+.day-rename {
+  background: none;
+  border: 0;
+  color: var(--dim);
+  padding: 2px 6px;
+}
+.day-rename:hover {
+  color: var(--ink);
+}

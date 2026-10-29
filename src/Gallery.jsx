@@ -244,8 +244,8 @@ function Lightbox({ items, index, setIndex, me, isAdmin, likes, commentsN, names
 
 
 
-// 왼쪽 폴더 트리 (대폴더 → 날짜 폴더). 관리자는 [EDIT] 로 제목 설정/이동
-function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRename, onDeleteAlbum, onMoveDay, total }) {
+// 왼쪽 폴더 트리 (폴더 → 날짜 폴더). 관리자는 [EDIT] 로 제목 설정/이동
+function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRename, onDeleteAlbum, onMoveDay, onRenameDay, total }) {
   const [edit, setEdit] = useState(false)
   const groups = [
     ...albums.map((a) => ({ id: a.id, title: a.title, days: days.filter((d) => d.album === a.id) })),
@@ -282,7 +282,7 @@ function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRena
             {edit && g.id && (
               <span className="node-tools">
                 <button onClick={() => onRename(g)} aria-label="제목 바꾸기">✎</button>
-                <button onClick={() => onDeleteAlbum(g)} aria-label="대폴더 삭제">×</button>
+                <button onClick={() => onDeleteAlbum(g)} aria-label="폴더 삭제">×</button>
               </span>
             )}
           </div>
@@ -293,11 +293,16 @@ function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRena
                   className={'node day' + (scope.t === 'day' && scope.id === d.day ? ' on' : '')}
                   onClick={() => setScope({ t: 'day', id: d.day })}
                 >
-                  <span>└ {d.day.slice(2)}</span>
+                  <span>└ {d.label || d.day.slice(2)}</span>
                   <span className="dim">
                     {d.count} · ♥{d.hearts}
                   </span>
                 </button>
+                {edit && (
+                  <button className="day-rename" onClick={() => onRenameDay(d.day)} aria-label="폴더 이름 바꾸기">
+                    ✎
+                  </button>
+                )}
                 {edit && (
                   <select
                     className="move"
@@ -322,7 +327,7 @@ function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRena
 
       {edit && (
         <button className="btn sm add-album" onClick={onAddAlbum}>
-          ＋ 대폴더 추가
+          ＋ 폴더 추가
         </button>
       )}
     </aside>
@@ -361,6 +366,7 @@ export default function Gallery({ session, isAdmin, goUpload }) {
   const [commentsN, setCommentsN] = useState({})
   const [albums, setAlbums] = useState([])
   const [assign, setAssign] = useState({}) // day -> album_id
+  const [labels, setLabels] = useState({}) // day -> 관리자가 붙인 이름
   const [urls, setUrls] = useState({})
   const [scope, setScope] = useState({ t: 'all' })
   const [limit, setLimit] = useState(PAGE)
@@ -377,7 +383,7 @@ export default function Gallery({ session, isAdmin, goUpload }) {
       supabase.from('likes').select('photo_id,user_id').range(0, 9999),
       supabase.from('comments').select('photo_id').range(0, 9999),
       supabase.from('albums').select('id,title').order('created_at', { ascending: true }),
-      supabase.from('album_days').select('day,album_id'),
+      supabase.from('album_days').select('day,album_id,label'),
     ])
     if (ph.error) {
       setErr('사진을 불러오지 못했어요: ' + ph.error.message)
@@ -394,7 +400,12 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     const cn = {}
     cm.data?.forEach((c) => (cn[c.photo_id] = (cn[c.photo_id] || 0) + 1))
     const am = {}
-    ad.data?.forEach((r) => (am[r.day] = r.album_id))
+    const lb = {}
+    ad.data?.forEach((r) => {
+      am[r.day] = r.album_id
+      if (r.label) lb[r.day] = r.label
+    })
+    setLabels(lb)
     setLikes(lm)
     setCommentsN(cn)
     setAlbums(al.data || [])
@@ -412,13 +423,13 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     const map = new Map()
     metas.forEach((p) => {
       const k = dayKey(p.created_at)
-      const d = map.get(k) || { day: k, count: 0, hearts: 0, album: assign[k] || null }
+      const d = map.get(k) || { day: k, label: labels[k] || '', count: 0, hearts: 0, album: assign[k] || null }
       d.count++
       d.hearts += likes[p.id]?.size || 0
       map.set(k, d)
     })
     return [...map.values()].sort((a, b) => b.day.localeCompare(a.day))
-  }, [metas, likes, assign])
+  }, [metas, likes, assign, labels])
 
   // 지금 보고 있는 폴더의 사진들: 하트 많은 순 → 같으면 최신순
   const scoped = useMemo(() => {
@@ -484,23 +495,23 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     }
   }
 
-  // ---- 관리자: 대폴더 만들기 / 제목 바꾸기 / 삭제 / 날짜 폴더 이동 ----
+  // ---- 관리자: 폴더 만들기 / 제목 바꾸기 / 삭제 / 날짜 폴더 이동 ----
   async function addAlbum() {
-    const title = prompt('새 대폴더 제목을 적어 주세요 (30자 이내)')?.trim()
+    const title = prompt('새 폴더 제목을 적어 주세요 (30자 이내)')?.trim()
     if (!title) return
     const { error } = await supabase.from('albums').insert({ title: title.slice(0, 30) })
-    if (error) setErr('대폴더를 못 만들었어요: ' + error.message)
+    if (error) setErr('폴더를 못 만들었어요: ' + error.message)
     else loadAll()
   }
   async function renameAlbum(g) {
-    const title = prompt('대폴더 제목', g.title)?.trim()
+    const title = prompt('폴더 제목', g.title)?.trim()
     if (!title || title === g.title) return
     const { error } = await supabase.from('albums').update({ title: title.slice(0, 30) }).eq('id', g.id)
     if (error) setErr('제목을 못 바꿨어요: ' + error.message)
     else loadAll()
   }
   async function deleteAlbum(g) {
-    if (!confirm(`대폴더 '${g.title}' 를 지울까요? 안의 날짜 폴더는 "미분류"로 가고, 사진은 지워지지 않아요.`)) return
+    if (!confirm(`폴더 '${g.title}' 를 지울까요? 안의 날짜 폴더는 "미분류"로 가고, 사진은 지워지지 않아요.`)) return
     const { error } = await supabase.from('albums').delete().eq('id', g.id)
     if (error) setErr('삭제하지 못했어요: ' + error.message)
     else {
@@ -508,8 +519,16 @@ export default function Gallery({ session, isAdmin, goUpload }) {
       loadAll()
     }
   }
+  async function renameDay(day) {
+    const label = prompt('폴더 이름 (비우면 날짜로 돌아가요)', labels[day] || day)?.trim()
+    if (label === undefined || label === null) return
+    const next = label === day ? '' : label.slice(0, 30)
+    const { error } = await supabase.from('album_days').upsert({ day, album_id: assign[day] || null, label: next || null })
+    if (error) setErr('이름을 못 바꿨어요: ' + error.message)
+    else setLabels((l) => ({ ...l, [day]: next }))
+  }
   async function moveDay(day, albumId) {
-    const { error } = await supabase.from('album_days').upsert({ day, album_id: albumId })
+    const { error } = await supabase.from('album_days').upsert({ day, album_id: albumId, label: labels[day] || null })
     if (error) setErr('이동하지 못했어요: ' + error.message)
     else setAssign((a) => ({ ...a, [day]: albumId }))
   }
@@ -532,7 +551,7 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     scope.t === 'all'
       ? '전체'
       : scope.t === 'day'
-        ? scope.id
+        ? labels[scope.id] || scope.id
         : albums.find((a) => a.id === scope.id)?.title || '미분류'
 
   return (
@@ -563,6 +582,7 @@ export default function Gallery({ session, isAdmin, goUpload }) {
           onRename={renameAlbum}
           onDeleteAlbum={deleteAlbum}
           onMoveDay={moveDay}
+          onRenameDay={renameDay}
         />
 
         <div className="gal-main">

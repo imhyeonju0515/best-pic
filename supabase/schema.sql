@@ -258,8 +258,8 @@ create policy "photos_bucket_delete" on storage.objects
     )
   );
 
--- ---------- 8) 대폴더 (albums) + 날짜 폴더 배치 (album_days) ----------
--- 대폴더 제목은 관리자가 정하고, 날짜 폴더를 어느 대폴더에 넣을지도 관리자가 옮깁니다.
+-- ---------- 8) 폴더 (albums) + 날짜 폴더 배치 (album_days) ----------
+-- 폴더 제목은 관리자가 정하고, 날짜 폴더를 어느 폴더에 넣을지도 관리자가 옮깁니다.
 create table if not exists public.albums (
   id         uuid primary key default gen_random_uuid(),
   title      text not null check (char_length(title) between 1 and 30),
@@ -270,6 +270,9 @@ create table if not exists public.album_days (
   day      text primary key check (day ~ '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$'),
   album_id uuid references public.albums (id) on delete set null
 );
+
+-- 날짜 폴더에도 관리자가 붙이는 이름(label)을 둘 수 있어요
+alter table public.album_days add column if not exists label text check (label is null or char_length(label) between 1 and 30);
 
 alter table public.albums enable row level security;
 alter table public.album_days enable row level security;
