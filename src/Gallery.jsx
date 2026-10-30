@@ -244,15 +244,113 @@ function Lightbox({ items, index, setIndex, me, isAdmin, likes, commentsN, names
 
 
 
-// 왼쪽 폴더 트리 (폴더 → 날짜 폴더). 관리자는 [EDIT] 로 제목 설정/이동
-function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRename, onDeleteAlbum, onMoveDay, onRenameDay, total }) {
-  const [edit, setEdit] = useState(false)
-  const groups = [
-    ...albums.map((a) => ({ id: a.id, title: a.title, days: days.filter((d) => d.album === a.id) })),
-    { id: null, title: '미분류', days: days.filter((d) => !d.album || !albums.some((a) => a.id === d.album)) },
-  ].filter((g) => g.id || g.days.length || albums.length === 0)
+// 폴더 계산 도우미 (폴더 안에 폴더를 넣을 수 있어요)
+function folderHelpers(albums, days) {
+  const ids = new Set(albums.map((a) => a.id))
+  const parentOf = (a) => (a.parent_id && ids.has(a.parent_id) ? a.parent_id : null)
+  const childrenOf = (pid) => albums.filter((a) => parentOf(a) === pid)
+  const daysOf = (aid) => days.filter((d) => (d.album && ids.has(d.album) ? d.album : null) === aid)
+  // 자기 자신 + 그 아래 모든 폴더 id
+  const subtree = (id, depth = 0) => {
+    const out = new Set([id])
+    if (depth < 12) childrenOf(id).forEach((c) => subtree(c.id, depth + 1).forEach((x) => out.add(x)))
+    return out
+  }
+  // 이동 칸에 보여 줄 폴더 목록 (들여쓰기용 depth 포함)
+  const flat = (skip = new Set(), pid = null, depth = 0) =>
+    childrenOf(pid).flatMap((a) =>
+      skip.has(a.id) || depth > 12 ? [] : [{ id: a.id, title: a.title, depth }, ...flat(skip, a.id, depth + 1)]
+    )
+  const countOf = (a, depth = 0) =>
+    daysOf(a.id).reduce((s, d) => s + d.count, 0) +
+    (depth < 12 ? childrenOf(a.id).reduce((s, c) => s + countOf(c, depth + 1), 0) : 0)
+  return { parentOf, childrenOf, daysOf, subtree, flat, countOf }
+}
 
-  const sum = (g) => g.days.reduce((s, d) => s + d.count, 0)
+// 왼쪽 폴더 트리. 관리자는 [EDIT] 로 만들기 / 이름 바꾸기 / 삭제 / 이동
+function FolderTree({ albums, days, scope, setScope, isAdmin, act, total }) {
+  const [edit, setEdit] = useState(false)
+  const h = useMemo(() => folderHelpers(albums, days), [albums, days])
+  const loose = days.filter((d) => !(d.album && albums.some((a) => a.id === d.album)))
+
+  const pad = (depth) => ({ paddingLeft: depth * 12 })
+  const options = (list) =>
+    list.map((o) => (
+      <option key={o.id} value={o.id}>
+        {'  '.repeat(o.depth)}
+        {o.depth ? '└ ' : ''}
+        {o.title}
+      </option>
+    ))
+
+  function dayRow(d, depth) {
+    return (
+      <div className="node-row" key={d.day} style={pad(depth)}>
+        <button
+          className={'node day' + (scope.t === 'day' && scope.id === d.day ? ' on' : '')}
+          onClick={() => setScope({ t: 'day', id: d.day })}
+        >
+          <span>└ {d.label || d.day.slice(2)}</span>
+          <span className="dim">
+            {d.count} · ♥{d.hearts}
+          </span>
+        </button>
+        {edit && (
+          <div className="edit-row">
+            <button className="day-rename" onClick={() => act.renameDay(d.day)} aria-label="이름 바꾸기">
+              ✎
+            </button>
+            <select
+              className="move"
+              value={d.album && albums.some((a) => a.id === d.album) ? d.album : ''}
+              onChange={(e) => act.moveDay(d.day, e.target.value || null)}
+              aria-label={`${d.day} 이동`}
+            >
+              <option value="">미분류</option>
+              {options(h.flat())}
+            </select>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function folderRow(a, depth) {
+    const skip = h.subtree(a.id)
+    return (
+      <div className="tree-album" key={a.id}>
+        <div className="node-row" style={pad(depth)}>
+          <button
+            className={'node album' + (scope.t === 'album' && scope.id === a.id ? ' on' : '')}
+            onClick={() => setScope({ t: 'album', id: a.id })}
+          >
+            <span>▸ {a.title}</span>
+            <span className="dim">{h.countOf(a)}</span>
+          </button>
+          {edit && (
+            <div className="edit-row">
+              <span className="node-tools">
+                <button onClick={() => act.addFolder(a.id)} aria-label="하위 폴더 만들기" title="하위 폴더 만들기">＋</button>
+                <button onClick={() => act.rename(a)} aria-label="이름 바꾸기" title="이름 바꾸기">✎</button>
+                <button onClick={() => act.remove(a)} aria-label="폴더 삭제" title="삭제">×</button>
+              </span>
+              <select
+                className="move"
+                value={h.parentOf(a) || ''}
+                onChange={(e) => act.moveFolder(a, e.target.value || null)}
+                aria-label={`${a.title} 위치 이동`}
+              >
+                <option value="">최상위로</option>
+                {options(h.flat(skip))}
+              </select>
+            </div>
+          )}
+        </div>
+        {depth < 12 && h.childrenOf(a.id).map((c) => folderRow(c, depth + 1))}
+        {h.daysOf(a.id).map((d) => dayRow(d, depth + 1))}
+      </div>
+    )
+  }
 
   return (
     <aside className="tree" aria-label="폴더">
@@ -269,70 +367,33 @@ function FolderTree({ albums, days, scope, setScope, isAdmin, onAddAlbum, onRena
         <span className="dim">{total}</span>
       </button>
 
-      {groups.map((g) => (
-        <div className="tree-album" key={g.id || 'none'}>
+      {h.childrenOf(null).map((a) => folderRow(a, 0))}
+
+      {loose.length > 0 && (
+        <div className="tree-album">
           <div className="node-row">
             <button
-              className={'node album' + (scope.t === 'album' && scope.id === g.id ? ' on' : '')}
-              onClick={() => setScope({ t: 'album', id: g.id })}
+              className={'node album' + (scope.t === 'album' && scope.id === null ? ' on' : '')}
+              onClick={() => setScope({ t: 'album', id: null })}
             >
-              <span>▸ {g.title}</span>
-              <span className="dim">{sum(g)}</span>
+              <span>▸ 미분류</span>
+              <span className="dim">{loose.reduce((s, d) => s + d.count, 0)}</span>
             </button>
-            {edit && g.id && (
-              <span className="node-tools">
-                <button onClick={() => onRename(g)} aria-label="제목 바꾸기">✎</button>
-                <button onClick={() => onDeleteAlbum(g)} aria-label="폴더 삭제">×</button>
-              </span>
-            )}
           </div>
-          <div className="tree-days">
-            {g.days.map((d) => (
-              <div className="node-row" key={d.day}>
-                <button
-                  className={'node day' + (scope.t === 'day' && scope.id === d.day ? ' on' : '')}
-                  onClick={() => setScope({ t: 'day', id: d.day })}
-                >
-                  <span>└ {d.label || d.day.slice(2)}</span>
-                  <span className="dim">
-                    {d.count} · ♥{d.hearts}
-                  </span>
-                </button>
-                {edit && (
-                  <button className="day-rename" onClick={() => onRenameDay(d.day)} aria-label="폴더 이름 바꾸기">
-                    ✎
-                  </button>
-                )}
-                {edit && (
-                  <select
-                    className="move"
-                    value={g.id || ''}
-                    onChange={(e) => onMoveDay(d.day, e.target.value || null)}
-                    aria-label={`${d.day} 이동`}
-                  >
-                    <option value="">미분류</option>
-                    {albums.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.title}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            ))}
-            {g.days.length === 0 && <p className="tag dim empty-dir">(비어 있어요)</p>}
-          </div>
+          {loose.map((d) => dayRow(d, 1))}
         </div>
-      ))}
+      )}
 
       {edit && (
-        <button className="btn sm add-album" onClick={onAddAlbum}>
-          ＋ 폴더 추가
+        <button className="btn sm add-album" onClick={() => act.addFolder(null)}>
+          ＋ 폴더 만들기
         </button>
       )}
+      {edit && <p className="tag dim edit-help">＋ 하위 폴더 · ✎ 이름 · × 삭제 · 아래 칸으로 이동</p>}
     </aside>
   )
 }
+
 
 // 큰 화면: 하트를 가장 많이 받은 사진
 function Feature({ p, likes, me, onHeart, onOpen, best }) {
@@ -382,7 +443,7 @@ export default function Gallery({ session, isAdmin, goUpload }) {
       supabase.from('photos').select('id,user_id,path,caption,created_at').order('created_at', { ascending: false }).range(0, 999),
       supabase.from('likes').select('photo_id,user_id').range(0, 9999),
       supabase.from('comments').select('photo_id').range(0, 9999),
-      supabase.from('albums').select('id,title').order('created_at', { ascending: true }),
+      supabase.from('albums').select('id,title,parent_id').order('created_at', { ascending: true }),
       supabase.from('album_days').select('day,album_id,label'),
     ])
     if (ph.error) {
@@ -433,18 +494,20 @@ export default function Gallery({ session, isAdmin, goUpload }) {
 
   // 지금 보고 있는 폴더의 사진들: 하트 많은 순 → 같으면 최신순
   const scoped = useMemo(() => {
+    const h = folderHelpers(albums, days)
     const albumIds = new Set(albums.map((a) => a.id))
+    const want = scope.t === 'album' && scope.id ? h.subtree(scope.id) : null
     const inScope = metas.filter((p) => {
       const k = dayKey(p.created_at)
       if (scope.t === 'all') return true
       if (scope.t === 'day') return k === scope.id
       const a = assign[k] && albumIds.has(assign[k]) ? assign[k] : null
-      return a === scope.id
+      return want ? want.has(a) : a === null
     })
     return [...inScope].sort(
       (a, b) => (likes[b.id]?.size || 0) - (likes[a.id]?.size || 0) || new Date(b.created_at) - new Date(a.created_at)
     )
-  }, [metas, likes, scope, assign, albums])
+  }, [metas, likes, scope, assign, albums, days])
 
   const shown = scoped.slice(0, limit)
 
@@ -495,23 +558,23 @@ export default function Gallery({ session, isAdmin, goUpload }) {
     }
   }
 
-  // ---- 관리자: 폴더 만들기 / 제목 바꾸기 / 삭제 / 날짜 폴더 이동 ----
-  async function addAlbum() {
-    const title = prompt('새 폴더 제목을 적어 주세요 (30자 이내)')?.trim()
+  // ---- 관리자: 폴더 만들기 / 이름 바꾸기 / 삭제 / 이동 (폴더 안에 폴더도 가능) ----
+  async function addFolder(parentId) {
+    const title = prompt(parentId ? '하위 폴더 이름을 적어 주세요 (30자 이내)' : '새 폴더 이름을 적어 주세요 (30자 이내)')?.trim()
     if (!title) return
-    const { error } = await supabase.from('albums').insert({ title: title.slice(0, 30) })
+    const { error } = await supabase.from('albums').insert({ title: title.slice(0, 30), parent_id: parentId })
     if (error) setErr('폴더를 못 만들었어요: ' + error.message)
     else loadAll()
   }
-  async function renameAlbum(g) {
-    const title = prompt('폴더 제목', g.title)?.trim()
+  async function renameFolder(g) {
+    const title = prompt('폴더 이름', g.title)?.trim()
     if (!title || title === g.title) return
     const { error } = await supabase.from('albums').update({ title: title.slice(0, 30) }).eq('id', g.id)
-    if (error) setErr('제목을 못 바꿨어요: ' + error.message)
+    if (error) setErr('이름을 못 바꿨어요: ' + error.message)
     else loadAll()
   }
-  async function deleteAlbum(g) {
-    if (!confirm(`폴더 '${g.title}' 를 지울까요? 안의 날짜 폴더는 "미분류"로 가고, 사진은 지워지지 않아요.`)) return
+  async function removeFolder(g) {
+    if (!confirm(`폴더 '${g.title}' 를 지울까요? 안에 있는 폴더와 날짜 폴더는 지워지지 않고 바깥(최상위/미분류)으로 나가요. 사진도 안 지워져요.`)) return
     const { error } = await supabase.from('albums').delete().eq('id', g.id)
     if (error) setErr('삭제하지 못했어요: ' + error.message)
     else {
@@ -519,6 +582,12 @@ export default function Gallery({ session, isAdmin, goUpload }) {
       loadAll()
     }
   }
+  async function moveFolder(g, parentId) {
+    const { error } = await supabase.from('albums').update({ parent_id: parentId }).eq('id', g.id)
+    if (error) setErr('이동하지 못했어요: ' + error.message)
+    else setAlbums((list) => list.map((a) => (a.id === g.id ? { ...a, parent_id: parentId } : a)))
+  }
+
   async function renameDay(day) {
     const label = prompt('폴더 이름 (비우면 날짜로 돌아가요)', labels[day] || day)?.trim()
     if (label === undefined || label === null) return
@@ -578,11 +647,7 @@ export default function Gallery({ session, isAdmin, goUpload }) {
           setScope={setScope}
           isAdmin={isAdmin}
           total={metas.length}
-          onAddAlbum={addAlbum}
-          onRename={renameAlbum}
-          onDeleteAlbum={deleteAlbum}
-          onMoveDay={moveDay}
-          onRenameDay={renameDay}
+          act={{ addFolder, rename: renameFolder, remove: removeFolder, moveFolder, renameDay, moveDay }}
         />
 
         <div className="gal-main">

@@ -271,6 +271,9 @@ create table if not exists public.album_days (
   album_id uuid references public.albums (id) on delete set null
 );
 
+-- 폴더 안에 폴더를 넣을 수 있게 parent_id 를 추가해요
+alter table public.albums add column if not exists parent_id uuid references public.albums (id) on delete set null check (parent_id is null or parent_id <> id);
+
 -- 날짜 폴더에도 관리자가 붙이는 이름(label)을 둘 수 있어요
 alter table public.album_days add column if not exists label text check (label is null or char_length(label) between 1 and 30);
 
@@ -292,6 +295,10 @@ create policy "album_days_select_approved" on public.album_days
 drop policy if exists "album_days_admin_write" on public.album_days;
 create policy "album_days_admin_write" on public.album_days
   for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- ============================================================
+-- API 가 새 표를 바로 알아보도록 새로고침 (schema cache 오류 방지)
+notify pgrst, 'reload schema';
 
 -- ============================================================
 -- 끝! 첫 관리자는 가입을 한 뒤 아래 한 줄을 (닉네임만 바꿔서) 실행하세요.

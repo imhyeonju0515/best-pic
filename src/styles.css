@@ -1280,3 +1280,20 @@ input::placeholder {
 .day-rename:hover {
   color: var(--ink);
 }
+
+.edit-row {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 4px;
+}
+.edit-row .move {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.edit-help {
+  margin: 8px 0 0;
+  font-size: 10px;
+}
